@@ -192,8 +192,7 @@ class RPMFile(object):
                     raise NoZSTANDARDModuleError("zstandard module not present")
                 if not (sys.version_info.major >= 3 and sys.version_info.minor >= 5):
                     raise NoBytesIOError("Need io.BytesIO (Python >= 3.5)")
-                with zstandard.ZstdDecompressor().stream_reader(fileobj) as zstd_data:
-                    self._data_file = io.BytesIO(zstd_data.read())
+                self._data_file = zstandard.ZstdDecompressor().stream_reader(fileobj)
 
             elif self.headers["archive_compression"] == b"bzip2":
                 self._data_file = bz2.BZ2File(fileobj)
