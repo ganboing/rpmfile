@@ -44,29 +44,60 @@ class RPMInfo(object):
 
     _new_coder = struct.Struct(b"8s8s8s8s8s8s8s8s8s8s8s8s8s")
 
-    def __init__(self, name, file_start, file_size, initial_offset, isdir):
+    def __init__(self, name, file_start, file_size, initial_offset, header):
         self.name = name
         self.file_start = file_start
         self.size = file_size
         self.initial_offset = initial_offset
-        self._isdir = isdir
+        self.header = header
 
     @property
     def isdir(self):
-        return self._isdir
+        mode = int(self.header[1], 16)
+        return mode & int("0170000", 8) == int("0040000", 8)
+
+    @property
+    def isregular(self):
+        mode = int(self.header[1], 16)
+        return mode & int("0170000", 8) == int("0100000", 8)
+
+    @property
+    def issymlink(self):
+        mode = int(self.header[1], 16)
+        return mode & int("0170000", 8) == int("0120000", 8)
+
+    @property
+    def nlink(self):
+        return int(self.header[4], 16)
+
+    @property
+    def inode(self):
+        return int(self.header[0], 16)
 
     def __repr__(self):
         return "<RPMMember %r>" % self.name
 
+    def copy_content(self, fileobj, destf):
+        left = self.size
+        while left != 0:
+            buffer = fileobj.read(min(left, 4096))
+            destf.write(buffer)
+            left -= len(buffer)
+        fileobj.seek(pad(fileobj), 1)
+
+    def discard_content(self, fileobj):
+        fileobj.seek(self.size, 1)
+        fileobj.seek(pad(fileobj), 1)
+
     @classmethod
-    def _read(cls, magic, fileobj):
+    def _read(cls, magic, fileobj, skip_content=True):
         if magic == b"070701":
-            return cls._read_new(fileobj, magic=magic)
+            return cls._read_new(fileobj, magic=magic, skip_content=skip_content)
         else:
             raise Exception("bad magic number %r" % magic)
 
     @classmethod
-    def _read_new(cls, fileobj, magic=None):
+    def _read_new(cls, fileobj, magic=None, skip_content=True):
         coder = cls._new_coder
 
         initial_offset = fileobj.tell()
@@ -77,12 +108,11 @@ class RPMInfo(object):
         fileobj.seek(pad(fileobj), 1)
         file_start = fileobj.tell()
         file_size = int(d[6], 16)
-        fileobj.seek(file_size, 1)
-        fileobj.seek(pad(fileobj), 1)
+        if skip_content:
+            fileobj.seek(file_size, 1)
+            fileobj.seek(pad(fileobj), 1)
         # https://www.mankier.com/5/cpio under Old Binary Format mode bits
-        mode = int(d[1], 16)
-        isdir = mode & int("0040000", 8)
-        return cls(name, file_start, file_size, initial_offset, isdir)
+        return cls(name, file_start, file_size, initial_offset, d)
 
 
 class RPMFile(object):
